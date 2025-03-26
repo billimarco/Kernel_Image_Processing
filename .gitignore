@@ -1,0 +1,34 @@
+# Ignora la directory di build
+/build/
+
+# Ignora i file di configurazione generati da CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+*.cmake
+
+# Ignora file generati durante la compilazione
+*.o
+*.a
+*.so
+*.exe
+*.out
+*.dSYM/
+
+# Ignora file di log
+*.log
+
+
+# Ignora file generati come output
+output
+
+# Ignora i file di sistema (Mac, Windows, etc.)
+.DS_Store
+Thumbs.db
+
+# Ignora file di backup editor (es. Vim, Emacs)
+*~
+*.swp
+*.swo

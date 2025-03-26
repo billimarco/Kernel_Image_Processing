@@ -1,0 +1,43 @@
+{
+    "version": 8,
+    "configurePresets": [
+        {
+            "name": "Debug",
+            "displayName": "MSVC 2022 + CUDA (Debug)",
+            "description": "Compilazione in Debug con MSVC 2022 + CUDA",
+            "generator": "Visual Studio 17 2022",
+            "binaryDir": "${sourceDir}/build/Debug",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.43.34808/bin/Hostx64/x64/cl.exe",
+                "CMAKE_CXX_COMPILER": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.43.34808/bin/Hostx64/x64/cl.exe",
+                "CMAKE_CUDA_COMPILER": "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8/bin/nvcc.exe",
+                "CUDAToolkitDir": "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8",
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "Release",
+            "displayName": "MSVC 2022 + CUDA (Release)",
+            "description": "Compilazione in Release con MSVC 2022 + CUDA",
+            "generator": "Visual Studio 17 2022",
+            "binaryDir": "${sourceDir}/build/Release",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.43.34808/bin/Hostx64/x64/cl.exe",
+                "CMAKE_CXX_COMPILER": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.43.34808/bin/Hostx64/x64/cl.exe",
+                "CMAKE_CUDA_COMPILER": "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8/bin/nvcc.exe",
+                "CUDAToolkitDir": "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8",
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "Build-Debug",
+            "configurePreset": "Debug"
+        },
+        {
+            "name": "Build-Release",
+            "configurePreset": "Release"
+        }
+    ]
+}

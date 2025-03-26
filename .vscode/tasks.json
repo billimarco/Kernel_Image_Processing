@@ -1,0 +1,58 @@
+{
+    "tasks": [
+        {
+            "label": "Create output folder",
+            "type": "shell",
+            "command": "cmd /c if not exist '${workspaceFolder}\\output' mkdir '${workspaceFolder}\\output'",
+            "args": [
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Copy settings folder",
+            "type": "shell",
+            "command": "cmd",
+            "args": [
+                "/c",
+                "xcopy",
+                "/E", "/I", "/Y",
+                "${workspaceFolder}/settings",
+                "${workspaceFolder}/output/settings"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/output"
+            },
+            "problemMatcher": [],
+            "dependsOn": "Create output folder"
+        },
+        {
+            "label": "C/C++: CUDA Build (nvcc)",
+            "type": "shell",
+            "command": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.8\\bin\\nvcc.exe",
+            "args": [
+                "-std=c++17",
+                "-I${workspaceFolder}/include",
+                "-g",
+                "${workspaceFolder}/src/main.cpp",
+                "${workspaceFolder}/src/kernel.cu",
+                "-o",
+                "${workspaceFolder}/output/${fileBasenameNoExtension}.exe"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/output"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": [
+                "Create output folder",
+                "Copy settings folder"
+            ]
+        }
+    ],
+    "version": "2.0.0"
+}
