@@ -1,11 +1,3 @@
 {
-    "image_size": {
-        "width": 400,
-        "height": 400
-    },
-    "num_images": 50,
-    "structuring_element": {
-        "shape": "circle",
-        "radius": 5
-    }
+    "num_images": 50
 }

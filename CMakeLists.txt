@@ -35,7 +35,8 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")  # Ottimizzazione
 endif()
 
-file(COPY ${CMAKE_SOURCE_DIR}/settings DESTINATION ${CMAKE_BINARY_DIR})
+file(COPY ${CMAKE_SOURCE_DIR}/settings DESTINATION ${CMAKE_BINARY_DIR}/Debug)
+file(COPY ${CMAKE_SOURCE_DIR}/images DESTINATION ${CMAKE_BINARY_DIR}/Debug)
 
 # Stampa il tipo di build (Debug o Release)
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")

@@ -26,6 +26,23 @@
             "dependsOn": "Create output folder"
         },
         {
+            "label": "Copy images folder",
+            "type": "shell",
+            "command": "cmd",
+            "args": [
+                "/c",
+                "xcopy",
+                "/E", "/I", "/Y",
+                "${workspaceFolder}/images",
+                "${workspaceFolder}/output/images"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/output"
+            },
+            "problemMatcher": [],
+            "dependsOn": "Create output folder"
+        },
+        {
             "label": "C/C++: CUDA Build (nvcc)",
             "type": "shell",
             "command": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.8\\bin\\nvcc.exe",
@@ -50,7 +67,8 @@
             },
             "dependsOn": [
                 "Create output folder",
-                "Copy settings folder"
+                "Copy settings folder",
+                "Copy images folder"
             ]
         }
     ],

@@ -6,8 +6,9 @@
 #include <ctime>
 #include <iomanip>
 #include <filesystem>
+#include <stdexcept>
 #include <sstream>
-#include <omp.h>
+#include <optional>
 
 #include <sys/stat.h>  // Per creare cartelle
 #include <sys/types.h>
@@ -38,7 +39,7 @@ struct STBImage {
 
     // Funzione per caricare un'immagine
     bool loadImage(const std::string &name) {
-        image_data = stbi_load(name.c_str(), &width, &height, &channels, 1); // Immagine binaria (1 canale)
+        image_data = stbi_load(name.c_str(), &width, &height, &channels, 3); // Immagine binaria (1 canale)
         if (!image_data)
             return false;
         else {
@@ -51,17 +52,101 @@ struct STBImage {
     void saveImage(const std::string &newName) const {
         stbi_write_jpg(newName.c_str(), width, height, channels, image_data, width);
     }
+};
 
-    // Funzione per inizializzare un'immagine binaria
-    void initialize(int w, int h) {
-        width = w;
-        height = h;
-        channels = 1; // Immagine binaria con 1 canale
-        image_data = (uint8_t*)malloc(width * height * channels);
+struct Kernel {
+    std::vector<std::vector<float>> matrix;
+    int size;
 
-        // Inizializza l'immagine a nera (tutti i pixel sono 0)
-        for (int i = 0; i < width * height * channels; i++) {
-            image_data[i] = 0;
+    // Costruttore
+    Kernel(int s) : size(s) {
+        matrix.resize(size, std::vector<float>(size, 0));
+    }
+
+    // Costruttore con inizializzazione e normalizzazione opzionale
+    Kernel(int s, std::vector<std::vector<float>> initMatrix, bool normalizeKernel = true) : size(s) {
+        if (initMatrix.size() != size || anyRowInvalid(initMatrix)) {
+            throw std::invalid_argument("La matrice deve essere quadrata e della dimensione specificata.");
+        }
+        matrix = initMatrix;
+        if (normalizeKernel) {
+            normalize();
+        }
+    }
+
+    // Metodo per verificare che tutte le righe abbiano la lunghezza corretta
+    bool anyRowInvalid(const std::vector<std::vector<float>>& mat) {
+        for (const auto& row : mat) {
+            if (row.size() != size) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Metodo per normalizzare il kernel
+    void normalize() {
+        float sum = 0.0;
+        for (const auto& row : matrix) {
+            for (float value : row) {
+                sum += value;
+            }
+        }
+        if (sum != 0) {
+            for (auto& row : matrix) {
+                for (float& value : row) {
+                    value /= sum;
+                }
+            }
+        }
+    }
+
+    // Funzione per verificare se il kernel è separabile
+    bool isSeparable() {
+        std::vector<float> firstRow = matrix[0];
+        std::vector<float> firstCol(size);
+
+        for (int i = 0; i < size; ++i) {
+            firstCol[i] = matrix[i][0];
+        }
+
+        for (int i = 0; i < size; ++i) {
+            for (int j = 0; j < size; ++j) {
+                if (std::abs(matrix[i][j] - firstRow[j] * firstCol[i]) > 1e-6) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    bool separate(std::vector<float>& v, std::vector<float>& h) {
+        v = matrix[0];
+        h.resize(size, 1.0f);
+
+        for (int i = 0; i < size; ++i) {
+            if (matrix[i][0] != 0) {
+                float scale = matrix[i][0];
+                for (int j = 0; j < size; ++j) {
+                    if (std::abs(matrix[i][j] - v[j] * scale) > 1e-6) {
+                        return false;
+                    }
+                }
+                h[i] = scale;
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Metodo per stampare il kernel
+    void print() const {
+        for (const auto& row : matrix) {
+            for (float value : row) {
+                std::cout << value << " ";
+            }
+            std::cout << std::endl;
         }
     }
 };
@@ -92,179 +177,82 @@ void createPath(const std::string &path) {
 }
 
 // Funzione per caricare immagini in un vettore
-std::vector<STBImage> loadImages(const std::string &directory, int startIdx, int endIdx) {
+std::vector<STBImage> loadImages(const std::string& directory) {
     std::vector<STBImage> images;
-
-    for (int i = startIdx; i <= endIdx; i++) {
-        std::string filename = directory + "/image_" + std::to_string(i) + ".jpg";
-        STBImage img;
-
-        // Prova a caricare l'immagine
-        if (img.loadImage(filename)) {
-            images.push_back(std::move(img)); // Sposta l'immagine nel vettore per evitare copie inutili
-            //std::cout << "Immagine caricata: " << filename << " (" << img.width << "x" << img.height << ")" << std::endl;
-        } else {
-            std::cerr << "Errore nel caricamento dell'immagine: " << filename << std::endl;
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.is_regular_file()) {
+            std::string filename = entry.path().string();
+            STBImage img;
+            if (img.loadImage(filename)) {
+                images.push_back(img);
+            }
         }
     }
-
     return images;
 }
 
-// Disegna un rettangolo pieno
-void drawRectangle(STBImage &img, int x, int y, int w, int h) {
-    for (int i = y; i < y + h; i++)
-        for (int j = x; j < x + w; j++)
-            if (i >= 0 && i < img.height && j >= 0 && j < img.width)
-                img.image_data[i * img.width + j] = 255;
-}
-
-// Disegna una cornice rettangolare (rettangolo con buco)
-void drawHollowRectangle(STBImage &img, int x, int y, int w, int h, int thickness) {
-    drawRectangle(img, x, y, w, thickness);
-    drawRectangle(img, x, y + h - thickness, w, thickness);
-    drawRectangle(img, x, y, thickness, h);
-    drawRectangle(img, x + w - thickness, y, thickness, h);
-}
-
-// Disegna un cerchio pieno
-void drawCircle(STBImage &img, int cx, int cy, int radius) {
-    for (int y = 0; y < img.height; y++)
-        for (int x = 0; x < img.width; x++)
-            if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= radius * radius)
-                img.image_data[y * img.width + x] = 255;
-}
-
-// Disegna un anello (cerchio con buco)
-void drawHollowCircle(STBImage &img, int cx, int cy, int outerRadius, int innerRadius) {
-    for (int y = 0; y < img.height; y++)
-        for (int x = 0; x < img.width; x++) {
-            int distSq = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-            if (distSq <= outerRadius * outerRadius && distSq >= innerRadius * innerRadius)
-                img.image_data[y * img.width + x] = 255;
-        }
-}
-
-// Disegna una linea
-void drawLine(STBImage &img, int x1, int y1, int x2, int y2) {
-    int dx = abs(x2 - x1), dy = abs(y2 - y1);
-    int sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1, err = dx - dy;
-
-    while (true) {
-        if (x1 >= 0 && x1 < img.width && y1 >= 0 && y1 < img.height)
-            img.image_data[y1 * img.width + x1] = 255;
-        if (x1 == x2 && y1 == y2) break;
-        int e2 = err * 2;
-        if (e2 > -dy) { err -= dy; x1 += sx; }
-        if (e2 < dx) { err += dx; y1 += sy; }
-    }
-}
-
-// Funzione per generare immagini binarie con forme casuali
-void generateBinaryImages(int numImages, int width=256, int height=256) {
-    srand(time(0)); // Inizializza il generatore di numeri casuali
-
-    for (int i = 1; i <= numImages; i++) {
-        STBImage img;
-        img.initialize(width, height);
-
-        int numShapes = rand() % 3 + 1;  // Può generare da 1 a 3 forme
-
-        for (int j = 0; j < numShapes; j++) {
-            int shapeType = rand() % 5; // 0: Rettangolo, 1: Cornice rettangolare, 2: Cerchio, 3: Anello, 4: Linea
-
-            if (shapeType == 0) {
-                int x = rand() % (img.width - 50);
-                int y = rand() % (img.height - 50);
-                int w = rand() % (img.width - x);
-                int h = rand() % (img.height - y);
-                drawRectangle(img, x, y, w, h);
-            } 
-            else if (shapeType == 1) {
-                int x = rand() % (img.width - 100);
-                int y = rand() % (img.height - 100);
-                int w = rand() % 100 + 40;
-                int h = rand() % 100 + 40;
-                int thickness = 10;
-                drawHollowRectangle(img, x, y, w, h, thickness);
-            } 
-            else if (shapeType == 2) {
-                int cx = rand() % (img.width - 50);
-                int cy = rand() % (img.height - 50);
-                int radius = rand() % 50 + 10;
-                drawCircle(img, cx, cy, radius);
-            } 
-            else if (shapeType == 3) {
-                int cx = rand() % (img.width - 50);
-                int cy = rand() % (img.height - 50);
-                int outerRadius = rand() % 50 + 30;
-                int innerRadius = rand() % (outerRadius - 10) + 10;
-                drawHollowCircle(img, cx, cy, outerRadius, innerRadius);
-            } 
-            else {
-                int x1 = rand() % img.width;
-                int y1 = rand() % img.height;
-                int x2 = rand() % img.width;
-                int y2 = rand() % img.height;
-                drawLine(img, x1, y1, x2, y2);
-            }
-        }
-
-        // Salva l'immagine generata
-        std::string filename = "images/basis/image_" + std::to_string(i) + ".jpg";
-        img.saveImage(filename);
-        //std::cout << "Immagine " << i << " salvata" << std::endl;
-    }
-}
-
-// Funzione per generare un elemento strutturante circolare
-std::vector<std::vector<int>> generateCircularKernel(int radius) {
-    int size = 2 * radius + 1;  // La dimensione della matrice che rappresenta il kernel
-    std::vector<std::vector<int>> kernel(size, std::vector<int>(size, 0));
-
-    for (int i = -radius; i <= radius; ++i) {
-        for (int j = -radius; j <= radius; ++j) {
-            // Calcolare la distanza dal centro (0, 0) con Teorema di Pitagora
-            if (i * i + j * j <= radius * radius) {
-                kernel[i + radius][j + radius] = 1;
+STBImage convolveRGB(const STBImage &image, const Kernel &kernel) {
+    int height = image.height;
+    int width = image.width;
+    int kCenter = kernel.size / 2;
+    
+    STBImage outputImage;
+    outputImage.width = width;
+    outputImage.height = height;
+    outputImage.channels = 3;
+    outputImage.image_data = new uint8_t[width * height * 3];
+    
+    for (int i = kCenter; i < height - kCenter; i++) {
+        for (int j = kCenter; j < width - kCenter; j++) {
+            for (int c = 0; c < 3; c++) {
+                float sum = 0;
+                for (int m = 0; m < kernel.size; m++) {
+                    for (int n = 0; n < kernel.size; n++) {
+                        int pixelIndex = ((i + m - kCenter) * width + (j + n - kCenter)) * 3 + c;
+                        sum += image.image_data[pixelIndex] * kernel.matrix[m][n];
+                    }
+                }
+                int newIndex = (i * width + j) * 3 + c;
+                outputImage.image_data[newIndex] = std::min(std::max(int(sum), 0), 255);
             }
         }
     }
-    return kernel;
+    return outputImage;
 }
-
-// Funzione per generare un elemento strutturante quadrato
-std::vector<std::vector<int>> generateSquareKernel(int halfSideLength) {
-    int fullSide = 2 * halfSideLength + 1;
-    std::vector<std::vector<int>> kernel(fullSide, std::vector<int>(fullSide, 0));
-
-    for (int i = -halfSideLength; i <= halfSideLength; ++i) {
-        for (int j = -halfSideLength; j <= halfSideLength; ++j) {
-            kernel[i + halfSideLength][j + halfSideLength] = 1;
-        }
-    }
-    return kernel;
-}
-
 
 int main(){
-    createPath("images/basis");
-    createPath("images/erosion");
-    createPath("images/dilation");
-    createPath("images/opening");
-    createPath("images/closing");
-
+    createPath("images/modified");
     std::ifstream conf_file("settings/config.json");
     json config = json::parse(conf_file);
 
-    int width = config["image_size"]["width"], height = config["image_size"]["height"], num_images = config["num_images"];
-    
-    generateBinaryImages(num_images, width, height);
-    std::cout << num_images <<" immagini " << width << "x" << height << " generate con successo!" << std::endl;
+    int num_images = config["num_images"];
 
-    std::vector<STBImage> loadedImages = loadImages("images/basis", 1, num_images);
+    std::vector<STBImage> loadedImages = loadImages("images/basis");
     std::cout << "Totale immagini caricate: " << loadedImages.size() << std::endl;
+    std::cout << "Totale immagini caricate: " << loadedImages[0].width << std::endl;
+    std::cout << "Totale immagini caricate: " << loadedImages[0].height << std::endl;
+    std::cout << "Totale immagini caricate: " << loadedImages[0].channels << std::endl;
 
+    try {
+        std::vector<std::vector<float>> initMatrix = {{0, -1, 0}, 
+                                                      {-1, 5, -1}, 
+                                                      {0, -1, 0}};  // Esempio di kernel Gaussiano
+        Kernel k(3, initMatrix, false);
+        k.print();
+
+        // Applica la convoluzione a tutte le immagini
+        for (size_t i = 0; i < loadedImages.size(); ++i) {
+            STBImage result = convolveRGB(loadedImages[i], k);
+            
+            std::string originalFilename = std::filesystem::path(loadedImages[i].filename).filename().string();
+            
+            std::string outputFilename = "images/modified/" + originalFilename;
+            result.saveImage(outputFilename);
+            std::cout << "Immagine salvata come " << outputFilename << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Errore: " << e.what() << std::endl;
+    }
 
     return 0;
 }
