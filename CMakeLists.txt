@@ -14,7 +14,7 @@ include_directories(include include/nlohmann include/stb)
 set(CMAKE_CUDA_ARCHITECTURES 60 61 70 75 80 86 89)
 
 # Source files
-set(SOURCES src/main.cpp src/kernel.cu)
+set(SOURCES src/main.cu)
 
 # Aggiungi l'eseguibile
 add_executable(${PROJECT_NAME} ${SOURCES})
@@ -26,6 +26,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 
 if(DEFINED CUDAToolkitDir)
     list(APPEND CMAKE_PREFIX_PATH "${CUDAToolkitDir}")
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr -diag-suppress=550 -diag-suppress=20014")
     message(STATUS "Using custom CUDA Toolkit directory: ${CUDAToolkitDir}")
 endif()
 

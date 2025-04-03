@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <sstream>
 #include <optional>
+#include <chrono>
+#include <cuda_runtime.h>
 
 #include <sys/stat.h>  // Per creare cartelle
 #include <sys/types.h>
@@ -131,7 +133,7 @@ struct Kernel {
         //std::cout << "SingularValues SVD (se uno solo è un valore non nullo è separabile):\n" << singularValues << std::endl;
     
         // Verifica se il numero di valori singolari non nulli è 1 (indica che la matrice ha rango 1)
-        return singularValues(0) > 1e-6 && singularValues.tail(singularValues.size() - 1).isZero(1e-6);
+        return singularValues(0) > 1e-6f && singularValues.tail(singularValues.size() - 1).isZero(1e-6f);
     }
 
     bool separate(std::vector<float>& vertical, std::vector<float>& horizontal) const {
@@ -152,7 +154,7 @@ struct Kernel {
         //std::cout << "SingularValues SVD (se uno solo è un valore non nullo è separabile):\n" << singularValues << std::endl;
     
         // Se il rango è maggiore di 1, il kernel non è separabile
-        if (singularValues(0) < 1e-6 || !singularValues.tail(singularValues.size() - 1).isZero(1e-6)) {
+        if (singularValues(0) < 1e-6f || !singularValues.tail(singularValues.size() - 1).isZero(1e-6f)) {
             return false;
         }
     
@@ -221,6 +223,33 @@ std::vector<STBImage> loadImages(const std::string& directory) {
     return images;
 }
 
+// Dummy CUDA kernel for warmup
+__global__ void dummyKernel() {
+}
+
+void cudaWarmup() {
+    // Launch a small kernel with 1 block and 1 thread (just to initialize GPU)
+    auto start = std::chrono::high_resolution_clock::now();
+    dummyKernel<<<1, 1>>>();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration<double, std::milli>(end - start).count();
+    
+    // Wait for the kernel to finish
+    cudaDeviceSynchronize();
+    
+    // Check for any errors that might have occurred
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA warmup fallito: " << cudaGetErrorString(err) << std::endl;
+    } else {
+        std::cout << "CUDA warmup successo:" << std::endl;
+        std::cout << "Tempo di esecuzione CUDA warmup: " << duration << " ms" << std::endl;
+    }
+}
+//<------------------------------------------------------------------------>
+// Funzioni per la normale convoluzione RGB
+
+// Funzione per fare Image Processing tramite convoluzione di un Kernel
 STBImage convolveRGB(const STBImage &img, const Kernel &kernel) {
     int kCenter = kernel.size / 2;
 
@@ -252,6 +281,76 @@ STBImage convolveRGB(const STBImage &img, const Kernel &kernel) {
     }
     return outputImg;
 }
+
+// Funzione di convoluzione con un kernel in CUDA
+__global__ void convolveKernelRGB(uint8_t *input, uint8_t *output, const float *kernel, int width, int height, int kernelSize) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int kCenter = kernelSize / 2;
+    int pixelIndex = (y * width + x) * 3;
+    float sum[3] = {0};
+
+    if (x < width && y < height) return;
+
+    for (int i = 0; i < kernelSize; i++) {
+        for (int j = 0; j < kernelSize; j++) {
+            int nx = x + j - kCenter;
+            int ny = y + i - kCenter;
+            
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                int idx = (ny * width + nx) * 3;
+                float k = kernel[i * kernelSize + j];
+                sum[0] += input[idx] * k;
+                sum[1] += input[idx + 1] * k;
+                sum[2] += input[idx + 2] * k;
+            }
+        }
+    }
+
+    output[pixelIndex] = min(max(int(sum[0]), 0), 255);
+    output[pixelIndex + 1] = min(max(int(sum[1]), 0), 255);
+    output[pixelIndex + 2] = min(max(int(sum[2]), 0), 255);
+}
+
+// Funzione per fare Image Processing tramite convoluzione di un Kernel con CUDA
+STBImage convolveRGB_CUDA(const STBImage &img, const Kernel &kernel) {
+    std::vector<float> h_allKernel(kernel.size * kernel.size);
+    for (int i = 0; i < kernel.size; i++)
+        for (int j = 0; j < kernel.size; j++)
+            h_allKernel[i * kernel.size + j] = kernel.matrix[i][j];
+    
+    STBImage outputImg;
+    outputImg.initializeRGB(img.width, img.height);
+    
+    int imageSize = img.width * img.height * 3;
+    
+    uint8_t *d_input, *d_output;
+    float *d_kernel;
+
+    cudaMalloc(&d_input, imageSize);
+    cudaMalloc(&d_output, imageSize);
+    cudaMalloc(&d_kernel, kernel.size * kernel.size * sizeof(float));
+    
+    cudaMemcpy(d_input, img.image_data, imageSize, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_kernel, h_allKernel.data(), kernel.size * kernel.size * sizeof(float), cudaMemcpyHostToDevice);
+    
+    dim3 blockSize(16, 16);
+    dim3 gridSize((img.width + blockSize.x - 1) / blockSize.x, (img.height + blockSize.y - 1) / blockSize.y);
+    
+    convolveKernelRGB<<<gridSize, blockSize>>>(d_input, d_output, d_kernel, img.width, img.height, kernel.size);
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(outputImg.image_data, d_output, imageSize, cudaMemcpyDeviceToHost);
+    
+    cudaFree(d_input);
+    cudaFree(d_output);
+    cudaFree(d_kernel);
+
+    return outputImg;
+}
+
+//<------------------------------------------------------------------------>
+// Funzioni per la convoluzione RGB con kernel separato
 
 STBImage separableConvolutionRGB(const STBImage &img, Kernel &kernel) {
     std::vector<float> v, h;
@@ -313,9 +412,114 @@ STBImage separableConvolutionRGB(const STBImage &img, Kernel &kernel) {
     return outputImg;
 }
 
+// CUDA Kernel for the horizontal convolution (first pass)
+__global__ void convolutionHorizontalKernelRGB(const unsigned char *input, unsigned char *tempOutput, const float *hKernel, int width, int height, int kernelSize) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int kCenter = kernelSize / 2;
+    int pixelIndex = (y * width + x) * 3;
+    float sum[3] = {0};
+
+    if (x < width && y < height) return;
+
+    for (int k = 0; k < kernelSize; k++) {
+        int nx = x + k - kCenter;
+        if (nx >= 0 && nx < width) {
+            int idx = (y * width + nx) * 3;
+
+            sum[0] += input[idx] * hKernel[k];
+            sum[1] += input[idx + 1] * hKernel[k];
+            sum[2] += input[idx + 2] * hKernel[k];
+        }
+    }
+
+    tempOutput[pixelIndex] = min(max(int(sum[0]), 0), 255);
+    tempOutput[pixelIndex + 1] = min(max(int(sum[1]), 0), 255);
+    tempOutput[pixelIndex + 2] = min(max(int(sum[2]), 0), 255);    
+}
+
+// CUDA Kernel for the vertical convolution (second pass)
+__global__ void convolutionVerticalKernelRGB(const unsigned char *tempInput, unsigned char *output, const float *vKernel, int width, int height, int kernelSize) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int kCenter = kernelSize / 2;
+    int pixelIndex = (y * width + x) * 3;
+    float sum[3] = {0};
+
+    if (x < width && y < height) return;
+
+    
+    for (int k = 0; k < kernelSize; k++) {
+        int ny = y + k - kCenter;
+        if (ny >= 0 && ny < height) {
+            int idx = (ny * width + x) * 3;
+
+            sum[0] += tempInput[idx] * vKernel[k];
+            sum[1] += tempInput[idx + 1] * vKernel[k];
+            sum[2] += tempInput[idx + 2] * vKernel[k];
+        }
+    }
+
+    output[pixelIndex] = min(max(int(sum[0]), 0), 255);
+    output[pixelIndex + 1] = min(max(int(sum[1]), 0), 255);
+    output[pixelIndex + 2] = min(max(int(sum[2]), 0), 255); 
+}
+
+// Main CUDA function for separable convolution
+STBImage separableConvolutionRGB_CUDA(const STBImage &img, Kernel &kernel) {
+    std::vector<float> v, h;
+    if (!kernel.separate(v, h)) {
+        throw std::runtime_error("Il kernel non è separabile!");
+    }
+
+    STBImage tempImg, outputImg;
+    tempImg.initializeRGB(img.width, img.height);
+    outputImg.initializeRGB(img.width, img.height);
+
+    int imageSize = img.width * img.height * 3;
+
+    uint8_t *d_input, *d_tempOutput, *d_output;
+    float *d_hKernel, *d_vKernel;
+
+    cudaMalloc(&d_input, imageSize);
+    cudaMalloc(&d_tempOutput, imageSize);
+    cudaMalloc(&d_output, imageSize);
+    cudaMalloc(&d_hKernel, kernel.size * sizeof(float));
+    cudaMalloc(&d_vKernel, kernel.size * sizeof(float));
+
+    cudaMemcpy(d_input, img.image_data, imageSize, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_hKernel, h.data(), kernel.size * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_vKernel, v.data(), kernel.size * sizeof(float), cudaMemcpyHostToDevice);
+
+    dim3 blockSize(16, 16);
+    dim3 gridSize((img.width + blockSize.x - 1) / blockSize.x, (img.height + blockSize.y - 1) / blockSize.y);
+
+    convolutionHorizontalKernelRGB<<<gridSize, blockSize>>>(d_input, d_tempOutput, d_hKernel, img.width, img.height, kernel.size);
+    cudaDeviceSynchronize();
+
+    convolutionVerticalKernelRGB<<<gridSize, blockSize>>>(d_tempOutput, d_output, d_vKernel, img.width, img.height, kernel.size);
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(outputImg.image_data, d_output, img.width * img.height * img.channels * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+
+    cudaFree(d_input);
+    cudaFree(d_tempOutput);
+    cudaFree(d_output);
+    cudaFree(d_hKernel);
+    cudaFree(d_vKernel);
+
+    return outputImg;
+}
+//<------------------------------------------------------------------------>
 int main(){
+
     createPath("images/convolution");
+    createPath("images/convolutionCUDA");
     createPath("images/separable_convolution");
+    createPath("images/separable_convolutionCUDA");
+
+    cudaWarmup();
+
     std::ifstream conf_file("settings/config.json");
     json config = json::parse(conf_file);
 
@@ -337,18 +541,47 @@ int main(){
 
         // Applica la convoluzione a tutte le immagini
         for (size_t i = 0; i < loadedImages.size(); i++) {
+
+            auto start = std::chrono::high_resolution_clock::now();
             STBImage result1 = convolveRGB(loadedImages[i], k);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration<double, std::milli>(end - start).count();
             std::string originalFilename1 = std::filesystem::path(loadedImages[i].filename).filename().string();
             std::string outputFilename1 = "images/convolution/" + originalFilename1;
             result1.saveImage(outputFilename1);
             std::cout << "Immagine salvata come " << outputFilename1 << std::endl;
+            std::cout << "Tempo di esecuzione: " << duration << " ms" << std::endl;
+
+            auto start2 = std::chrono::high_resolution_clock::now();
+            STBImage result2 = convolveRGB_CUDA(loadedImages[i], k);
+            auto end2 = std::chrono::high_resolution_clock::now();
+            auto duration2 = std::chrono::duration<double, std::milli>(end2 - start2).count();
+            std::string originalFilename2 = std::filesystem::path(loadedImages[i].filename).filename().string();
+            std::string outputFilename2 = "images/convolutionCUDA/" + originalFilename2;
+            result1.saveImage(outputFilename2);
+            std::cout << "Immagine salvata come " << outputFilename2 << std::endl;
+            std::cout << "Tempo di esecuzione: " << duration2 << " ms" << std::endl;
 
             if(k.isSeparable()){
-                STBImage result2 = separableConvolutionRGB(loadedImages[i], k);
-                std::string originalFilename2 = std::filesystem::path(loadedImages[i].filename).filename().string();
-                std::string outputFilename2 = "images/separable_convolution/" + originalFilename2;
-                result1.saveImage(outputFilename2);
-                std::cout << "Immagine salvata come " << outputFilename2 << std::endl;
+                auto start3 = std::chrono::high_resolution_clock::now();
+                STBImage result3 = separableConvolutionRGB(loadedImages[i], k);
+                auto end3 = std::chrono::high_resolution_clock::now();
+                auto duration3 = std::chrono::duration<double, std::milli>(end3 - start3).count();
+                std::string originalFilename3 = std::filesystem::path(loadedImages[i].filename).filename().string();
+                std::string outputFilename3 = "images/separable_convolution/" + originalFilename3;
+                result1.saveImage(outputFilename3);
+                std::cout << "Immagine salvata come " << outputFilename3 << std::endl;
+                std::cout << "Tempo di esecuzione: " << duration3 << " ms" << std::endl;
+
+                auto start4 = std::chrono::high_resolution_clock::now();
+                STBImage result4 = separableConvolutionRGB_CUDA(loadedImages[i], k);
+                auto end4 = std::chrono::high_resolution_clock::now();
+                auto duration4 = std::chrono::duration<double, std::milli>(end4 - start4).count();
+                std::string originalFilename4 = std::filesystem::path(loadedImages[i].filename).filename().string();
+                std::string outputFilename4 = "images/separable_convolutionCUDA/" + originalFilename4;
+                result1.saveImage(outputFilename4);
+                std::cout << "Immagine salvata come " << outputFilename4 << std::endl;
+                std::cout << "Tempo di esecuzione: " << duration4 << " ms" << std::endl;
             }
         }
     } catch (const std::exception& e) {

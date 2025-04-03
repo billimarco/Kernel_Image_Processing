@@ -49,9 +49,11 @@
             "args": [
                 "-std=c++17",
                 "-I${workspaceFolder}/include",
+                "--expt-relaxed-constexpr",
+                "-diag-suppress=550", 
+                "-diag-suppress=20014",
                 "-g",
-                "${workspaceFolder}/src/main.cpp",
-                "${workspaceFolder}/src/kernel.cu",
+                "${workspaceFolder}/src/main.cu",
                 "-o",
                 "${workspaceFolder}/output/${fileBasenameNoExtension}.exe"
             ],
