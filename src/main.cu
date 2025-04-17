@@ -31,6 +31,7 @@
 #include <Eigen/Dense>
 
 using json = nlohmann::json;
+const json CONFIG = json::parse(std::ifstream("settings/config.json"));
 // change OMP_NUM_THREADS environment variable to run with 1 to X threads...
 // check configuration in drop down menu
 // XXX check working directory so that ./images and ./output are valid !
@@ -520,10 +521,7 @@ int main(){
 
     cudaWarmup();
 
-    std::ifstream conf_file("settings/config.json");
-    json config = json::parse(conf_file);
-
-    int num_images = config["num_images"];
+    int num_images = CONFIG["num_images"];
 
     std::vector<STBImage> loadedImages = loadImages("images/basis");
     std::cout << "Totale immagini caricate: " << loadedImages.size() << std::endl;
