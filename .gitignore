@@ -23,6 +23,10 @@ Makefile
 
 # Ignora file generati come output
 output
+images/convolution
+images/convolutionCUDA
+images/separable_convolution
+images/separable_convolutionCUDA
 
 # Ignora i file di sistema (Mac, Windows, etc.)
 .DS_Store
