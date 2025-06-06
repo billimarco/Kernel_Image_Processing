@@ -1,3 +1,6 @@
 {
-    "num_images": 50
+    "dataset_name": "anime",
+    "kernel_size": 3,
+    "kernel_type": "gaussian",
+    "kernel_normalize": true
 }
