@@ -545,7 +545,7 @@ __global__ void convolutionHorizontalKernelRGB(const unsigned char *input, unsig
     tempOutput[pixelIndex + 2] = min(max(int(sum[2]), 0), 255);    
 }
 
-// CUDA Kernel per la convoluzione verticale (second pass)
+// CUDA Kernel per la convoluzione verticale (secondo passaggio)
 __global__ void convolutionVerticalKernelRGB(const unsigned char *tempInput, unsigned char *output, const float *vKernel, int width, int height, int kernelSize) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;

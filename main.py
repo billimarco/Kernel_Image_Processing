@@ -67,9 +67,10 @@ for j, size in enumerate(kernel_sizes):
     time_ax.set_xticks(x)
     time_ax.set_xticklabels(xs, rotation=45, ha='right', fontsize=9)
     time_ax.set_title(f"Kernel {size} - Tempi", fontsize=11)
+    time_ax.set_xlabel("Block Size", fontsize=10)
     time_ax.grid(True)
     if j == 0:
-        time_ax.set_ylabel("Tempo (ms)", fontsize=10)
+        time_ax.set_ylabel("Time (ms)", fontsize=10)
         time_ax.yaxis.label.set_fontsize(10)
         
 handles, labels_ = axes[0,0].get_legend_handles_labels()
@@ -81,11 +82,11 @@ by_label = OrderedDict(zip(all_labels, all_handles))
 
 fig.legend(by_label.values(), by_label.keys(), loc='upper center', ncol=4, fontsize=12, bbox_to_anchor=(0.5, 0.955))
 
-plt.suptitle("Speedup and Time Comparison for Gaussian Blur", fontsize=14)
+plt.suptitle("Mean Speedups and Times Comparison for Gaussian Blur", fontsize=14)
 plt.tight_layout(rect=[0, 0, 1.00, 0.95])
 plt.show()
 
-fig_seq, ax_seq = plt.subplots(1, 1, figsize=(8, 5))
+fig_seq, ax_seq = plt.subplots(1, 1, figsize=(5, 4))
 
 x_labels = []
 conv_times = []
@@ -117,8 +118,9 @@ ax_seq.set_xticks(x)
 ax_seq.set_xticklabels(x_labels, rotation=45, fontsize=9)
 ax_seq.legend(fontsize=12)
 
-ax_seq.set_title("Sequential times for Gaussian Blur", fontsize=14)
-ax_seq.set_ylabel("Tempo (ms)", fontsize=10)
+ax_seq.set_title("Mean Sequential Times for Gaussian Blur", fontsize=14)
+ax_seq.set_ylabel("Time (ms)", fontsize=10)
+ax_seq.set_xlabel("Kernel size", fontsize=10)
 ax_seq.grid(True)
 ax_seq.tick_params(axis='x', labelsize=9)
 
